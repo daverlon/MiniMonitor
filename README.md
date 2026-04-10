@@ -1,5 +1,6 @@
 # MiniMonitor
 A lightweight macOS menu bar utility to monitor CPU, RAM, and GPU usage in real-time.
+
 <img src="minimonitor_ss.png" alt="WattBar Screenshot" width="300">
 
 ## Installation
