@@ -26,7 +26,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let popover = NSPopover()
-        popover.contentSize = NSSize(width: 180, height: 160)
+        popover.contentSize = NSSize(width: 200, height: 160)
         popover.behavior = .transient
         popover.contentViewController = NSHostingController(
             rootView: PopoverView(monitor: monitor, appDelegate: self)
@@ -41,18 +41,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .store(in: &cancellables)
     }
 
-    func updateButtonTitle(_ button: NSButton) {
-        guard let cpu = monitor.cpuPercent,
-              let ram = monitor.ramUsedGB,
-              let total = monitor.ramTotalGB,
-              let gpu = monitor.gpuPercent else {
-            button.title = "—"
-            return
-        }
+    func refreshTitle() {
+        if let button = statusItem?.button { updateButtonTitle(button) }
+    }
 
-        let cpuStr = String(format: "%1.0f%%", cpu)
-        let ramStr = String(format: "%1.0f%%", ram / total * 100.0)
-        let gpuStr = String(format: "%1.0f%%", gpu)
+    func updateButtonTitle(_ button: NSButton) {
+        let showCPU = UserDefaults.standard.object(forKey: "showCPU") as? Bool ?? true
+        let showRAM = UserDefaults.standard.object(forKey: "showRAM") as? Bool ?? true
+        let showGPU = UserDefaults.standard.object(forKey: "showGPU") as? Bool ?? true
+
+        let cpu = monitor.cpuPercent
+        let ram = monitor.ramUsedGB
+        let total = monitor.ramTotalGB
+        let gpu = monitor.gpuPercent
+
+        let cpuStr = cpu.map { String(format: "%1.0f%%", $0) } ?? "—"
+        let ramStr = (ram != nil && total != nil) ? String(format: "%1.0f%%", ram! / total! * 100.0) : "—"
+        let gpuStr = gpu.map { String(format: "%1.0f%%", $0) } ?? "—"
 
         let font = NSFont.monospacedSystemFont(ofSize: 14, weight: .light)
         let attrs: [NSAttributedString.Key: Any] = [
@@ -71,12 +76,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let result = NSMutableAttributedString()
-        result.append(symbol("cpu"))
-        result.append(NSAttributedString(string: "\(cpuStr) ", attributes: attrs))
-        result.append(symbol("memorychip"))
-        result.append(NSAttributedString(string: "\(ramStr) ", attributes: attrs))
-        result.append(symbol("display"))
-        result.append(NSAttributedString(string: "\(gpuStr)", attributes: attrs))
+        if showCPU {
+            result.append(symbol("cpu"))
+            result.append(NSAttributedString(string: "\(cpuStr) ", attributes: attrs))
+        }
+        if showRAM {
+            result.append(symbol("memorychip"))
+            result.append(NSAttributedString(string: "\(ramStr) ", attributes: attrs))
+        }
+        if showGPU {
+            result.append(symbol("display"))
+            result.append(NSAttributedString(string: "\(gpuStr)", attributes: attrs))
+        }
+        if result.length == 0 {
+            result.append(NSAttributedString(string: "—", attributes: attrs))
+        }
 
         guard button.attributedTitle.string != result.string else { return }
         button.attributedTitle = result
@@ -96,15 +110,22 @@ struct PopoverView: View {
     @ObservedObject var monitor: MiniMonitor
     var appDelegate: AppDelegate
 
+    @AppStorage("showCPU") private var showCPU = true
+    @AppStorage("showRAM") private var showRAM = true
+    @AppStorage("showGPU") private var showGPU = true
+
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var isHoveringStartup = false
     @State private var isHoveringQuit = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            row(label: "cpu", value: pctString(monitor.cpuPercent))
-            row(label: "ram", value: ramString)
-            row(label: "gpu", value: pctString(monitor.gpuPercent))
+            row(label: "cpu", value: pctString(monitor.cpuPercent), visible: $showCPU)
+                .onChange(of: showCPU) { _, _ in appDelegate.refreshTitle() }
+            row(label: "ram", value: ramString, visible: $showRAM)
+                .onChange(of: showRAM) { _, _ in appDelegate.refreshTitle() }
+            row(label: "gpu", value: pctString(monitor.gpuPercent), visible: $showGPU)
+                .onChange(of: showGPU) { _, _ in appDelegate.refreshTitle() }
 
             Divider()
 
@@ -126,12 +147,15 @@ struct PopoverView: View {
                 .onHover { isHoveringQuit = $0 }
         }
         .padding(16)
-        .frame(width: 180)
+        .frame(width: 200)
         .font(.system(size: 11, weight: .light, design: .monospaced))
     }
 
-    func row(label: String, value: String) -> some View {
-        HStack {
+    func row(label: String, value: String, visible: Binding<Bool>) -> some View {
+        HStack(spacing: 6) {
+            Toggle("", isOn: visible)
+                .toggleStyle(.checkbox)
+                .labelsHidden()
             Text(label).foregroundStyle(.secondary)
             Spacer()
             Text(value)
